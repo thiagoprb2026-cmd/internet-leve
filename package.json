@@ -1,0 +1,12 @@
+{
+  "name": "leve-internet",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Leve — salas de áudio, vídeo, compartilhamento de tela e chat",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js"
+  }
+}
