@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leve</title>
+<style>
+:root{--bg:#f4f5f8;--card:#fff;--tx:#1d2030;--mut:#6b7185;--ac:#5b6cff;--bd:#dfe2ec;--ok:#1fa971;--bad:#e5484d}
+@media (prefers-color-scheme:dark){:root{--bg:#14151c;--card:#1d1f2b;--tx:#eceefa;--mut:#9a9fb5;--ac:#7886ff;--bd:#2c2f40}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px system-ui,sans-serif}
+main{max-width:1000px;margin:0 auto;padding:16px}
+.top{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+h1{font-size:20px;margin:0}.mut{color:var(--mut);font-size:13px}
+#tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));margin:12px 0}
+.t{position:relative;background:#000;border-radius:12px;overflow:hidden;aspect-ratio:16/9}
+.t video{width:100%;height:100%;object-fit:contain}
+.t span{position:absolute;left:8px;bottom:6px;background:#0009;color:#fff;font-size:12px;padding:2px 8px;border-radius:8px}
+select{border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);padding:8px;font:inherit;margin:0 6px 6px 0}
+#people{padding:10px 14px;margin-top:12px}.pr{display:flex;justify-content:space-between;gap:10px;padding:4px 0;border-bottom:1px solid var(--bd)}.pr:last-child{border:0}.ok{color:var(--ok)}.mu{color:var(--mut)}
+#nm{border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);padding:8px;font:inherit;width:150px;margin-right:6px}
+button{border:0;border-radius:10px;padding:9px 14px;background:var(--ac);color:#fff;font:inherit;cursor:pointer;margin:0 6px 6px 0}
+button.g{background:var(--bd);color:var(--tx)}button.on{background:var(--ok)}button.r{background:var(--bad)}
+#log{height:140px;overflow:auto;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:8px}
+#log b{color:var(--ac)}.row{display:flex;gap:8px;margin-top:8px}
+.row input{flex:1;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);padding:9px;font:inherit}.row button{margin:0}
+</style></head><body><main>
+<div class="top"><div><h1>Leve</h1><div class="mut" id="info">Conectando…</div></div>
+<div><input id="nm" maxlength="20" title="Seu nome"><button class="g" id="bCode">Copiar código</button><button class="g" id="bLink">Copiar convite</button></div></div>
+<div id="lobby" class="card" style="display:none;max-width:420px;margin:30px auto;text-align:center">
+ <h2 style="margin:0 0 10px">Criar ou entrar numa sala</h2>
+ <button id="bNew">Criar sala nova</button>
+ <div class="mut" style="margin:14px 0 6px">ou digite o código de convite do amigo</div>
+ <div class="row"><input id="inCode" placeholder="ABC123" maxlength="7" style="text-align:center;font:700 20px monospace;letter-spacing:3px;text-transform:uppercase"><button id="bJoin">Entrar</button></div>
+ <div class="st mut" id="lerr" style="color:var(--bad)"></div>
+</div>
+<div id="app" style="display:none">
+<div class="card" style="text-align:center;margin-top:12px"><div class="mut">Código de convite</div><div id="bigcode" style="font:700 30px monospace;letter-spacing:6px"></div></div>
+<div id="people" class="card"></div>
+<div id="shr" class="mut"></div>
+<div id="tiles"></div>
+<div><button id="bMic" class="on">Microfone ligado</button><button id="bCam" class="g">Ligar câmera</button><button id="bScr" class="g">Compartilhar tela</button></div>
+<div class="mut" style="margin-bottom:10px">Qualidade <select id="selQ"><option value="480">480p</option><option value="720" selected>720p</option><option value="1080">1080p</option><option value="1440">1440p</option></select>FPS <select id="selF"><option value="15">15</option><option value="30" selected>30</option><option value="60">60</option></select><span id="qinfo"></span></div>
+<div id="log"></div>
+<div class="row"><input id="txt" placeholder="Mensagem…"><button id="bSend">Enviar</button></div>
+</div></main>
+<script>
+const $=id=>document.getElementById(id);
+const norm=c=>c.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);
+const mkCode=()=>{const a='ABCDEFGHJKMNPQRSTUVWXYZ23456789';let c='';for(const b of crypto.getRandomValues(new Uint8Array(6)))c+=a[b%a.length];return c};
+let room=norm(location.hash.slice(1));if(room.length<6)room='';
+let name='Convidado '+Math.floor(Math.random()*900+100);
+const ICE=window.LEVE_ICE_SERVERS
+  ? {iceServers:window.LEVE_ICE_SERVERS}
+  : {iceServers:[{urls:'stun:stun.l.google.com:19302'}]};
+const peers={},states={};let me,mic,vTrack=null,vStream=null,kind='';
+let myId;
+const tx=m=>fetch('/send',{method:'POST',body:JSON.stringify({...m,id:myId})});
+const log=(n,t)=>{const d=document.createElement('div'),b=document.createElement('b');b.textContent=n+': ';d.append(b,t);$('log').append(d);$('log').scrollTop=1e9};
+
+function tile(id,label,muted){const d=document.createElement('div');d.className='t';d.id='t'+id;
+  const v=document.createElement('video');v.autoplay=true;v.playsInline=true;v.muted=!!muted;
+  const s=document.createElement('span');s.textContent=label;s.id='l'+id;d.append(v,s);$('tiles').append(d);return v}
+
+async function start(){
+  try{mic=(await navigator.mediaDevices.getUserMedia({audio:true})).getAudioTracks()[0]}catch{log('Sistema','Sem microfone: você só ouvirá.')}
+  tile('me',name+' (você)',true);
+  const response=await fetch('/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room})});
+   if(!response.ok)throw new Error('Não foi possível entrar na sala.');
+   const r=await response.json();
+  if(r.full)return $('info').textContent='Sala cheia (máx. 6).';
+  myId=r.id;const es=new EventSource('/events?id='+myId);
+  es.onmessage=e=>handle(JSON.parse(e.data));
+  es.onerror=()=>$('info').textContent='Desconectado do servidor.';
+  handle({type:'hello',id:r.id,peers:r.peers});
+}
+function mk(pid,init){
+  const p={q:Promise.resolve()};
+  const pc=p.pc=new RTCPeerConnection(ICE);peers[pid]=p;
+  const rs=new MediaStream();p.v=tile(pid,'Participante '+pid);p.v.srcObject=rs;
+  render();
+  pc.ontrack=e=>rs.addTrack(e.track);
+  pc.onconnectionstatechange=()=>pc.connectionState==='connected'&&setBitrate();
+  pc.onicecandidate=e=>e.candidate&&tx({type:'signal',to:pid,data:{c:e.candidate}});
+  if(init){
+    pc.addTransceiver(mic||'audio',{direction:'sendrecv'});
+    p.vs=pc.addTransceiver(vTrack||'video',{direction:'sendrecv'}).sender;
+    p.q=p.q.then(async()=>{await pc.setLocalDescription(await pc.createOffer());tx({type:'signal',to:pid,data:{d:pc.localDescription}})});
+  }
+  return p;
+}
+async function onSignal(from,d){
+  if(d.s){states[from]=d.s;render();if(d.hi)tx({type:'signal',to:from,data:{s:st()}});return}
+  const p=peers[from]||mk(from,false),pc=p.pc;
+  p.q=p.q.then(async()=>{
+    if(d.d){
+      await pc.setRemoteDescription(d.d);
+      if(d.d.type==='offer'){
+        for(const t of pc.getTransceivers()){t.direction='sendrecv';
+          if(t.receiver.track.kind==='audio'&&mic)await t.sender.replaceTrack(mic);
+          if(t.receiver.track.kind==='video'){p.vs=t.sender;vTrack&&await t.sender.replaceTrack(vTrack)}}
+        await pc.setLocalDescription(await pc.createAnswer());tx({type:'signal',to:from,data:{d:pc.localDescription}});
+      }
+    }else if(d.c){try{await pc.addIceCandidate(d.c)}catch{}}
+  });
+}
+function handle(m){
+  if(m.type==='hello'){me=m.id;$('info').textContent='Sala: '+room;m.peers.forEach(id=>{mk(id,true);tx({type:'signal',to:id,data:{s:st(),hi:1}})});render()}
+  else if(m.type==='signal')onSignal(m.from,m.data);
+  else if(m.type==='left'&&peers[m.id]){peers[m.id].pc.close();$('t'+m.id)?.remove();delete peers[m.id];delete states[m.id];render()}
+  else if(m.type==='chat')log(m.name,m.text);
+  else if(m.type==='full')$('info').textContent='Sala cheia (máx. 6).'}
+
+const Q={'480':[854,480,1e6],'720':[1280,720,2.5e6],'1080':[1920,1080,5e6],'1440':[2560,1440,9e6]};
+const vc=()=>{const q=Q[$('selQ').value],f=+$('selF').value;return{width:{ideal:q[0]},height:{ideal:q[1]},frameRate:{ideal:f,max:f}}};
+async function setBitrate(){const b=Q[$('selQ').value][2],f=+$('selF').value;
+  for(const id in peers){const sd=peers[id].vs;if(!sd)continue;
+    try{const p=sd.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];
+      p.encodings[0].maxBitrate=b;p.encodings[0].maxFramerate=f;
+      p.degradationPreference=f>30?'maintain-framerate':'maintain-resolution';await sd.setParameters(p)}catch{}}}
+function showQ(){setTimeout(()=>{const st=vTrack&&vTrack.getSettings();$('qinfo').textContent=st&&st.width?' · enviando '+st.width+'x'+st.height+(st.frameRate?' @'+Math.round(st.frameRate)+'fps':''):''},600)}
+async function applyQ(){if(vTrack)try{await vTrack.applyConstraints(vc())}catch{}await setBitrate();showQ()}
+$('selQ').onchange=$('selF').onchange=applyQ;
+async function setVideo(t,s,k){
+  vStream&&vStream.getTracks().forEach(x=>x!==t&&x.stop());
+  vTrack=t;vStream=s;kind=k;
+  for(const id in peers)peers[id].vs&&await peers[id].vs.replaceTrack(t);
+  await setBitrate();showQ();bc();render();
+  $('t'+'me').querySelector('video').srcObject=s;
+  $('bCam').className=k==='cam'?'on':'g';$('bCam').textContent=k==='cam'?'Desligar câmera':'Ligar câmera';
+  $('bScr').className=k==='scr'?'on':'g';$('bScr').textContent=k==='scr'?'Parar compartilhamento':'Compartilhar tela';
+}
+$('bCam').onclick=async()=>{if(kind==='cam')return setVideo(null,null,'');
+  try{const s=await navigator.mediaDevices.getUserMedia({video:vc()});setVideo(s.getVideoTracks()[0],s,'cam')}catch{log('Sistema','Câmera indisponível.')}};
+$('bScr').onclick=async()=>{if(kind==='scr')return setVideo(null,null,'');
+  try{const s=await navigator.mediaDevices.getDisplayMedia({video:vc(),audio:false});const t=s.getVideoTracks()[0];t.onended=()=>setVideo(null,null,'');setVideo(t,s,'scr')}catch{log('Sistema','Compartilhamento indisponível aqui.')}};
+$('bMic').onclick=()=>{if(!mic)return;mic.enabled=!mic.enabled;bc();render();$('bMic').className=mic.enabled?'on':'g';$('bMic').textContent=mic.enabled?'Microfone ligado':'Microfone mudo'};
+const send=()=>{const v=$('txt').value.trim();if(!v)return;tx({type:'chat',name,text:v});log('Você',v);$('txt').value=''};
+$('bSend').onclick=send;$('txt').onkeydown=e=>e.key==='Enter'&&send();
+$('bCode').onclick=()=>{navigator.clipboard.writeText(room);$('bCode').textContent='Código copiado!'};
+async function copyText(text){
+  if(navigator.clipboard && window.isSecureContext){
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area=document.createElement('textarea');
+  area.value=text;
+  area.style.position='fixed';
+  area.style.opacity='0';
+  document.body.append(area);
+  area.select();
+  const ok=document.execCommand('copy');
+  area.remove();
+  if(!ok)throw new Error('Não foi possível copiar o convite.');
+}
+
+function inviteData(){
+  const url=new URL(location.href);
+  url.hash=room;
+  const link=url.toString();
+  const message='🎧 Vamos conversar no Leve!\\n\\nEntre na minha sala pelo link abaixo:\\n'+link+'\\n\\nSe preferir, use o código: '+room+'\\n\\nÉ só abrir o link e entrar na sala.';
+  return {url:link,message};
+}
+
+$('bLink').onclick=async()=>{
+  const btn=$('bLink'), original='Copiar convite';
+  const invite=inviteData();
+  try{
+    if(navigator.share){
+      await navigator.share({title:'Convite para uma sala no Leve',text:invite.message,url:invite.url});
+      btn.textContent='Convite compartilhado!';
+    }else{
+      await copyText(invite.message);
+      btn.textContent='Convite copiado!';
+    }
+  }catch(err){
+    if(err.name==='AbortError')return;
+    try{
+      await copyText(invite.message);
+      btn.textContent='Convite copiado!';
+    }catch{
+      log('Sistema','Não foi possível compartilhar automaticamente. Copie o link: '+invite.url);
+      btn.textContent=original;
+    }
+  }
+  setTimeout(()=>btn.textContent=original,2500);
+};
+const st=()=>({name,mic:mic?mic.enabled:null,vid:kind});
+const bc=()=>{for(const id in peers)tx({type:'signal',to:id,data:{s:st()}})};
+const badge=m=>m===null?'🚫 sem microfone':m?'🎤 ligado':'🔇 mudo';
+function render(){
+  const box=$('people');box.textContent='';
+  const rows=[[name+' (você)',mic?mic.enabled:null,'me',kind]];
+  for(const id in peers){const x=states[id];rows.push([x?x.name:'Participante '+id,x?x.mic:undefined,id,x?x.vid:''])}
+  for(const [n,m,id,v] of rows){
+    const d=document.createElement('div');d.className='pr';
+    const a=document.createElement('span');a.textContent=n;
+    const b=document.createElement('span');b.textContent=(m===undefined?'…':badge(m))+(v==='scr'?' · 🖥️ compartilhando tela':v==='cam'?' · 📷 câmera':'');b.className=m===true?'ok':'mu';
+    d.append(a,b);box.append(d);
+    const l=$('l'+id);if(l)l.textContent=n+(m===false?' 🔇':'')+(v==='scr'?' 🖥️':'');
+    const t=$('t'+id);if(t){t.style.outline=v==='scr'?'3px solid var(--ac)':'';t.style.gridColumn=v==='scr'?'1/-1':''}
+  }
+  const sh=rows.filter(r=>r[3]==='scr').map(r=>r[0]);
+  $('shr').textContent=sh.length?'🖥️ Compartilhando tela: '+sh.join(', '):'';
+}
+$('nm').value=name;$('nm').oninput=()=>{name=$('nm').value.trim()||'Convidado';bc();render()};
+const enter=c=>{room=c;location.hash=c;$('lobby').style.display='none';$('app').style.display='block';$('bigcode').textContent=c;start().then(render)};
+$('bNew').onclick=()=>enter(mkCode());
+$('bJoin').onclick=()=>{const c=norm($('inCode').value);if(c.length<6)return $('lerr').textContent='O código tem 6 letras ou números.';enter(c)};
+$('inCode').onkeydown=e=>e.key==='Enter'&&$('bJoin').onclick();
+room?enter(room):$('lobby').style.display='block';
+</script></body></html>
